@@ -154,15 +154,16 @@ step_runs.depends_on ──► 已成功步骤的 output_md ──► buildConte
 ### 5.1 只沿依赖边共享
 
 ```
+新功能开发（5 步）：
 requirement ─► architecture ─► implementation ─► verification ─► review
-                                                              ├─► documentation
-architecture ─────────────────────────────────────────────────┘
-documentation ─► documentation-review
+
+代码文档编写与评审（独立工作流）：
+task.description（代码） ─► documentation ─► documentation-review
 ```
 
-- `documentation` 的 `depends_on` 显式列出需求、架构、实现、验证、评审五个步骤，因此文档专家能同时看到五份产物。
-- `documentation-review` 依赖架构与文档，评审时既能看到文档本身，也能对照架构决策。
-- **非直接依赖不共享**：即使 `review` 的上下文里含有实现产物，它也不会把「实现产物的副本」传给文档步骤；文档步骤必须自己声明依赖。
+- 文档工作流独立于开发流水线：`documentation` 没有前置依赖，事实来源是任务描述中提供的代码（文件路径、签名、字段、错误码），而不是上游的需求或架构产物。
+- `documentation-review` 依赖文档；架构师评审时对照的是同一份任务描述中的代码与文档本身，因此能逐项核对接口、字段、默认值与示例。
+- **非直接依赖不共享**：两个独立工作流之间不会自动传递产物。即使 `review` 的上下文里含有实现产物，它也不会出现在文档步骤的上下文中；需要时必须显式声明依赖。
 - 调度器只把「全部依赖成功」的步骤置为 READY，因此下游读到的是已完成、稳定的产物，不存在读半成品的问题。
 
 ### 5.2 只共享最终产物

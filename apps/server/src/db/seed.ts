@@ -16,7 +16,7 @@ import {
   SEED_AGENTS,
   SEED_COMPLETED_TASK,
   SEED_KNOWLEDGE,
-  SEED_QUEUED_TASK,
+  SEED_QUEUED_TASKS,
   SEED_SKILLS,
   SEED_WORKFLOWS,
 } from './seed-data';
@@ -131,12 +131,14 @@ export function seed(db: Db): void {
     );
   }
 
-  tasks.create({
-    title: SEED_QUEUED_TASK.title,
-    description: SEED_QUEUED_TASK.description,
-    scenario: SEED_QUEUED_TASK.scenario,
-    workflowId: requireId(workflowIds, SEED_QUEUED_TASK.workflowName),
-  });
+  for (const seedTask of SEED_QUEUED_TASKS) {
+    tasks.create({
+      title: seedTask.title,
+      description: seedTask.description,
+      scenario: seedTask.scenario,
+      workflowId: requireId(workflowIds, seedTask.workflowName),
+    });
+  }
 }
 
 interface CompletedRunDeps {

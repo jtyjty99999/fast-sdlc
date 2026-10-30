@@ -397,22 +397,6 @@ export const SEED_WORKFLOWS: SeedWorkflow[] = [
         dependsOn: ['verification'],
         gateMode: 'HUMAN_APPROVAL',
       },
-      {
-        stepKey: 'documentation',
-        name: '文档编写',
-        agentName: '文档专家',
-        instructionMd:
-          '汇总需求、架构、实现与测试产物，编写功能文档：概述、快速开始、核心概念、接口说明、常见问题与已知限制。关键结论标注来源，不臆造未出现的字段。',
-        dependsOn: ['requirement', 'architecture', 'implementation', 'verification', 'review'],
-      },
-      {
-        stepKey: 'documentation-review',
-        name: '文档评审',
-        agentName: '系统架构师',
-        instructionMd:
-          '以架构师视角评审文档：与架构决策和接口契约是否一致、是否遗漏关键约束、示例是否可运行。给出通过/修改结论与必须修改项。',
-        dependsOn: ['architecture', 'documentation'],
-      },
     ],
   },
   {
@@ -468,6 +452,33 @@ export const SEED_WORKFLOWS: SeedWorkflow[] = [
         agentName: '代码评审员',
         instructionMd: '汇总问题，给出通过/有条件通过/阻塞的结论与必须修复项。',
         dependsOn: ['static-review'],
+      },
+    ],
+  },
+  {
+    name: '代码文档编写与评审',
+    description:
+      '以任务中提供的代码为唯一事实来源编写文档，再由架构师逐项对照代码评审，确保文档不偏离实现。',
+    scenario: '文档编写',
+    tags: ['docs', '文档'],
+    matchKeywords: ['文档', '代码文档', '接口文档', '说明文档', 'README', '注释'],
+    status: 'ENABLED',
+    steps: [
+      {
+        stepKey: 'documentation',
+        name: '文档编写',
+        agentName: '文档专家',
+        instructionMd:
+          '以任务描述中提供的代码为唯一事实来源（文件路径、接口签名、数据结构、默认值、错误码与示例），编写文档：概述、模块结构、调用流程、对外接口、请求/响应字段、错误处理、配置项与已知限制。代码中无法确认的内容标注「待确认」，不得臆造字段或行为。',
+        dependsOn: [],
+      },
+      {
+        stepKey: 'documentation-review',
+        name: '文档评审',
+        agentName: '系统架构师',
+        instructionMd:
+          '逐项对照任务中提供的代码与文档：接口路径、字段、默认值、错误码、调用顺序与示例是否一致，是否遗漏关键约束或过度承诺。给出通过/修改结论与必须修改项。',
+        dependsOn: ['documentation'],
       },
     ],
   },
@@ -583,69 +594,36 @@ export const SEED_COMPLETED_TASK: SeedCompletedTask = {
 
 ## 复核结果
 两项必须修复已完成并补充测试，同意合入。`,
-    documentation: `# 功能文档：行程分享
-
-## 概述
-行程分享让乘客在行程进行中把实时位置分享给家人。家人无需安装应用或登录，打开链接即可查看位置与预计到达时间。
-
-## 快速开始
-1. 乘客在行程详情页点击「分享行程」。
-2. 系统创建分享链接，默认 24 小时有效。
-3. 把链接发送给家人，打开即可查看。
-4. 乘客可随时点击「取消分享」，链接立即失效。
-
-## 核心概念
-| 概念 | 说明 |
-| --- | --- |
-| 分享令牌 | 128 位随机数编码的不可枚举字符串，出现在链接中 |
-| 有效期 | 默认 24 小时，过期后访问返回 410 |
-| 撤销 | 乘客主动取消，写入 revokedAt，立即失效 |
-| 有效上限 | 同一行程最多 5 个有效分享 |
-
-## 接口说明
-### 创建分享
-\`POST /api/trips/{tripId}/shares\` → 201
-\`\`\`json
-{ "shareId": "shr_01", "url": "https://example.com/s/abc123", "expiresAt": "2026-01-02T00:00:00.000Z" }
-\`\`\`
-
-### 查看分享
-\`GET /api/shares/{token}\` → 200 分享视图；过期或撤销返回 410。
-
-### 取消分享
-\`DELETE /api/shares/{shareId}\` → 204。
-
-## 常见问题
-- 行程结束后还能看到位置吗？不能，页面只显示「行程已结束」。
-- 链接可以转发吗？可以，但持有链接的人都能查看，请谨慎转发。
-
-## 已知限制
-- 暂不支持多人协作编辑行程备注。
-- 分享访问审计报表将在后续版本提供。`,
-    'documentation-review': `# 文档评审：行程分享
-
-## 结论
-**通过，附 2 条建议**。文档与架构决策、接口契约一致，快速开始可直接跑通。
-
-## 一致性检查
-- [x] 令牌规则与「128 位随机数 + Base62」决策一致
-- [x] 接口路径、状态码与契约一致
-- [x] 过期与撤销行为与实现一致
-- [x] 已知限制覆盖缓存与审计两项风险
-
-## 建议
-1. 补充「第 6 个分享返回 409」的错误码说明，便于前端提示。
-2. 在快速开始中标注分享页不缓存，避免读者误判实时性。
-
-## 评审人
-系统架构师`,
   },
 };
 
-export const SEED_QUEUED_TASK: SeedQueuedTask = {
-  title: '修复支付回调偶发重复入账',
-  description:
-    '线上监控发现同一支付回调在重试时被处理两次，导致重复入账。需要定位根因、给出修复并完成回归验证。',
-  scenario: 'Bug修复',
-  workflowName: 'Bug 修复',
-};
+export const SEED_QUEUED_TASKS: SeedQueuedTask[] = [
+  {
+    title: '修复支付回调偶发重复入账',
+    description:
+      '线上监控发现同一支付回调在重试时被处理两次，导致重复入账。需要定位根因、给出修复并完成回归验证。',
+    scenario: 'Bug修复',
+    workflowName: 'Bug 修复',
+  },
+  {
+    title: '为支付回调幂等模块补齐代码文档',
+    description: `代码位置：apps/server/src/payment/callback.ts
+
+export async function handlePaymentCallback(payload: PaymentCallback): Promise<Result> {
+  // 以支付单号做幂等键，重复回调直接返回 success
+  const inserted = await idempotency.insertIfAbsent(payload.paymentNo);
+  if (!inserted) return { success: true, duplicated: true };
+  await settlement.record(payload);
+  return { success: true, duplicated: false };
+}
+
+接口：POST /api/v1/payments/callback
+请求体：{ paymentNo: string; amount: number; paidAt: string }
+错误码：IDEMPOTENCY_CONFLICT、SETTLEMENT_FAILED
+配置：PAYMENT_CALLBACK_TIMEOUT_MS（默认 3000）
+
+请只依据以上代码与接口信息编写文档，覆盖模块职责、调用流程、请求字段、幂等语义、错误处理与配置项；无法从代码确认的内容标注「待确认」。`,
+    scenario: '文档编写',
+    workflowName: '代码文档编写与评审',
+  },
+];

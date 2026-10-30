@@ -114,7 +114,7 @@ autosdd/
 
 ```bash
 pnpm typecheck      # 四个包全量类型检查
-pnpm test           # server 111 个（单元 + 集成） + web 16 个组件测试
+pnpm test           # server 115 个（单元 + 集成） + web 16 个组件测试
 pnpm test:coverage  # server：lines 75 / funcs 75 / branches 70 / statements 75 门禁
 pnpm e2e            # 先构建 web，再以 4100 端口起真实服务跑 Playwright
 ```

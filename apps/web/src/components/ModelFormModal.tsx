@@ -177,7 +177,11 @@ export function ModelFormModal({ open, model, onClose }: ModelFormModalProps) {
             maxLength={120}
           />
         </Field>
-        <Field label="Max Tokens" htmlFor="model-max-tokens">
+        <Field
+          label="Max Tokens"
+          htmlFor="model-max-tokens"
+          hint="推理类模型建议调大（如 16384），否则推理过程可能耗尽额度导致空输出。"
+        >
           <input
             id="model-max-tokens"
             className="input"

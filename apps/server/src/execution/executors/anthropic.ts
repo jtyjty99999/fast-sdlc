@@ -6,6 +6,7 @@ import type {
   ExecutorInput,
   ExecutorResult,
 } from '../types';
+import { emptyOutputError } from './empty-output';
 
 interface AnthropicExecutorOptions {
   apiKey: string;
@@ -53,6 +54,9 @@ export class AnthropicExecutor implements AgentExecutor {
         .filter((block) => block.type === 'text')
         .map((block) => block.text)
         .join('');
+      if (!outputMd.trim()) {
+        throw emptyOutputError(this.maxTokens, message.stop_reason);
+      }
       return {
         outputMd,
         inputTokens: message.usage.input_tokens,

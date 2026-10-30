@@ -8,6 +8,8 @@ const harness = vi.hoisted(() => {
     aborted: false,
     deferFinal: false,
     resolveFinal: undefined as (() => void) | undefined,
+    content: [{ type: 'text', text: '完整的产物内容' }] as Array<Record<string, unknown>>,
+    stopReason: 'end_turn' as string | null,
   };
   const stream = {
     on(event: string, handler: (text: string) => void) {
@@ -17,7 +19,8 @@ const harness = vi.hoisted(() => {
     finalMessage() {
       for (const handler of state.textHandlers) handler('流式片段');
       const message = {
-        content: [{ type: 'text', text: '完整的产物内容' }],
+        content: state.content,
+        stop_reason: state.stopReason,
         usage: { input_tokens: 12, output_tokens: 34 },
       };
       if (!state.deferFinal) return Promise.resolve(message);
@@ -58,6 +61,8 @@ beforeEach(() => {
   harness.state.aborted = false;
   harness.state.deferFinal = false;
   harness.state.resolveFinal = undefined;
+  harness.state.content = [{ type: 'text', text: '完整的产物内容' }];
+  harness.state.stopReason = 'end_turn';
 });
 
 describe('AnthropicExecutor', () => {
@@ -92,8 +97,27 @@ describe('AnthropicExecutor', () => {
     expect(result.model).toBe('fallback-model');
   });
 
-  test('rejects immediately when the signal is already aborted', async () => {
+  test('explains max_tokens exhaustion when reasoning leaves no text', async () => {
+    harness.state.content = [{ type: 'thinking', thinking: '推理过程' }];
+    harness.state.stopReason = 'max_tokens';
+    const executor = new AnthropicExecutor({ apiKey: 'test-key', model: 'm', maxTokens: 1024 });
+
+    await expect(
+      executor.run(input(), () => undefined, new AbortController().signal),
+    ).rejects.toThrow(/1024 tokens.*Max Tokens/);
+  });
+
+  test('reports the stop reason when a completion has no text', async () => {
+    harness.state.content = [];
+    harness.state.stopReason = 'refusal';
     const executor = new AnthropicExecutor({ apiKey: 'test-key', model: 'm' });
+
+    await expect(
+      executor.run(input(), () => undefined, new AbortController().signal),
+    ).rejects.toThrow(/refusal/);
+  });
+
+  test('rejects immediately when the signal is already aborted', async () => {    const executor = new AnthropicExecutor({ apiKey: 'test-key', model: 'm' });
     const controller = new AbortController();
     controller.abort();
 

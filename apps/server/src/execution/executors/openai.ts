@@ -6,12 +6,16 @@ import type {
   ExecutorInput,
   ExecutorResult,
 } from '../types';
+import { emptyOutputError } from './empty-output';
 
 const ERROR_BODY_LIMIT = 500;
 const ERROR_MESSAGE_LIMIT = 300;
 
 interface OpenAIChatChunk {
-  choices?: Array<{ delta?: { content?: string | null } }>;
+  choices?: Array<{
+    delta?: { content?: string | null };
+    finish_reason?: string | null;
+  }>;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -170,6 +174,7 @@ export class OpenAICompatibleExecutor implements AgentExecutor {
     }
 
     let outputMd = '';
+    let finishReason: string | null = null;
     let inputTokens: number | null = null;
     let outputTokens: number | null = null;
 
@@ -190,10 +195,15 @@ export class OpenAICompatibleExecutor implements AgentExecutor {
         outputMd += delta;
         emit({ type: 'delta', text: delta });
       }
+      finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
       if (chunk.usage) {
         inputTokens = chunk.usage.prompt_tokens ?? chunk.usage.input_tokens ?? inputTokens;
         outputTokens = chunk.usage.completion_tokens ?? chunk.usage.output_tokens ?? outputTokens;
       }
+    }
+
+    if (!outputMd.trim()) {
+      throw emptyOutputError(this.maxTokens, finishReason);
     }
 
     return { outputMd, inputTokens, outputTokens, model: this.model };

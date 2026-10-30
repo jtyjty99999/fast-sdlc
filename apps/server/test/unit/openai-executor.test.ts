@@ -68,7 +68,7 @@ describe('OpenAICompatibleExecutor', () => {
   });
 
   test('sends the expected endpoint, headers and body', async () => {
-    const fetchMock = vi.fn(async () => sseResponse(['data: [DONE]\n\n']));
+    const fetchMock = vi.fn(async () => sseResponse(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', 'data: [DONE]\n\n']));
     vi.stubGlobal('fetch', fetchMock);
 
     await executor({ apiKey: 'sk-test', maxTokens: 123 }).run(
@@ -93,7 +93,7 @@ describe('OpenAICompatibleExecutor', () => {
   });
 
   test('omits authorization for keyless local servers and does not double the path', async () => {
-    const fetchMock = vi.fn(async () => sseResponse(['data: [DONE]\n\n']));
+    const fetchMock = vi.fn(async () => sseResponse(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', 'data: [DONE]\n\n']));
     vi.stubGlobal('fetch', fetchMock);
 
     const keyless = new OpenAICompatibleExecutor({
@@ -178,6 +178,7 @@ describe('OpenAICompatibleExecutor', () => {
       vi.fn(async () =>
         sseResponse([
           'data: not-json\n\n',
+          'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
           'data: {"usage":{"input_tokens":5,"output_tokens":7}}\n\n',
           'data: [DONE]\n\n',
         ]),
@@ -186,11 +187,43 @@ describe('OpenAICompatibleExecutor', () => {
 
     const result = await executor().run(input, () => {}, new AbortController().signal);
 
-    expect(result).toEqual({ outputMd: '', inputTokens: 5, outputTokens: 7, model: 'qwen-plus' });
+    expect(result).toEqual({ outputMd: 'ok', inputTokens: 5, outputTokens: 7, model: 'qwen-plus' });
+  });
+
+  test('reports max_tokens exhaustion when a stream has no content', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    await expect(
+      executor({ maxTokens: 512 }).run(input, () => {}, new AbortController().signal),
+    ).rejects.toThrow(/512 tokens.*Max Tokens/);
+  });
+
+  test('reports the finish reason for other empty completions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          'data: {"choices":[{"delta":{},"finish_reason":"content_filter"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    await expect(
+      executor().run(input, () => {}, new AbortController().signal),
+    ).rejects.toThrow(/content_filter/);
   });
 
   test('omits the system message when the prompt is blank', async () => {
-    const fetchMock = vi.fn(async () => sseResponse(['data: [DONE]\n\n']));
+    const fetchMock = vi.fn(async () => sseResponse(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', 'data: [DONE]\n\n']));
     vi.stubGlobal('fetch', fetchMock);
 
     await executor().run(

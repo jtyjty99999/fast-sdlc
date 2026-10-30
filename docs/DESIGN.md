@@ -495,6 +495,7 @@ export interface AgentExecutor {
 - `@anthropic-ai/sdk` 的 `messages.stream`，`system` + 单条 user message。
 - 模型名、`max_tokens`、可选 `baseURL` 均来自模型注册表记录。
 - 逐段 `delta`；结束时读取 `usage.input_tokens/output_tokens`。
+- 若响应没有任何文本块：`stop_reason=max_tokens` 时提示「推理过程可能耗尽 token 额度，请调大 Max Tokens」，其他原因附带 `stop_reason`；不再退化为通用的「执行器返回了空产物」。
 - 支持 `AbortSignal`（取消/超时）；错误统一包装为 `LLM_ERROR`，不向客户端泄露 Key 或堆栈。
 
 #### OpenAICompatibleExecutor
@@ -503,6 +504,7 @@ export interface AgentExecutor {
 - 兼容 DeepSeek、通义千问、Ollama 等；Key 可空（本地无鉴权服务），有 Key 时发送 `Authorization: Bearer`。
 - 解析 SSE `data:` 行（支持 CRLF 与多行），逐段 emit `delta`，跳过 `[DONE]`；忽略无法解析的片段。
 - usage 兼容 `prompt_tokens/completion_tokens` 与 `input_tokens/output_tokens`；缺失记为 null。
+- 流结束仍无正文时按 `finish_reason` 报错：`length` 提示调大 Max Tokens，其他原因附带 `finish_reason`。
 - 非 2xx 或流内 `error` 转为 `LLM_ERROR`，保留状态码与脱敏后的上游信息；AbortSignal 透传 fetch。
 
 #### 工厂
@@ -991,7 +993,7 @@ autosdd/
 ## 13. 验证清单
 
 - [x] `pnpm typecheck` 通过
-- [x] `pnpm test` 通过（server 111 + web 16）；覆盖率高于门禁
+- [x] `pnpm test` 通过（server 115 + web 16）；覆盖率高于门禁
 - [x] `pnpm build` 成功；`pnpm start` 单端口可访问（E2E 即以此形态运行）
 - [x] 创建 Agent 并挂载技能/知识，上下文预览顺序正确（集成测试覆盖）
 - [x] 创建含人工卡点的 Workflow，校验错误可见（集成测试覆盖）

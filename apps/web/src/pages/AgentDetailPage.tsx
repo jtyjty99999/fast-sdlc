@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AgentInput, AgentMountInput } from '@autosdd/shared';
+import { MODEL_PROVIDER_LABELS, type AgentInput, type AgentMountInput } from '@autosdd/shared';
 import { api, errorMessage } from '../lib/api';
 import { formatDate, initials } from '../lib/format';
 import { Button } from '../components/ui/Button';
@@ -26,6 +26,7 @@ export function AgentDetailPage() {
     enabled: Boolean(id),
   });
   const skills = useQuery({ queryKey: ['skills', ''], queryFn: () => api.skills.list() });
+  const models = useQuery({ queryKey: ['models'], queryFn: () => api.models.list() });
   const knowledge = useQuery({
     queryKey: ['knowledge', ''],
     queryFn: () => api.knowledge.list(),
@@ -49,7 +50,7 @@ export function AgentDetailPage() {
       role: agent.data.role,
       description: agent.data.description,
       systemPrompt: agent.data.systemPrompt,
-      model: agent.data.model,
+      modelId: agent.data.modelId ?? '',
       status: agent.data.status,
     });
     setSkillIds(agent.data.skills.map((skill) => skill.id));
@@ -106,7 +107,7 @@ export function AgentDetailPage() {
 
   const submitProfile = (event: FormEvent): void => {
     event.preventDefault();
-    saveProfile.mutate(form);
+    saveProfile.mutate({ ...form, modelId: form.modelId?.trim() || undefined });
   };
 
   return (
@@ -192,16 +193,28 @@ export function AgentDetailPage() {
                     maxLength={30_000}
                   />
                 </Field>
-                <Field label="模型" htmlFor="detail-model">
-                  <input
+                <Field label="模型" htmlFor="detail-model" hint="执行该 Agent 的步骤时使用此模型。">
+                  <select
                     id="detail-model"
-                    className="input"
-                    value={form.model}
+                    className="select"
+                    value={form.modelId ?? ''}
                     onChange={(event) =>
-                      setForm({ ...form, model: event.target.value })
+                      setForm({ ...form, modelId: event.target.value })
                     }
-                    maxLength={120}
-                  />
+                  >
+                    {(form.modelId ?? '') === '' ? (
+                      <option value="">跟随默认模型</option>
+                    ) : null}
+                    {(models.data ?? [])
+                      .filter(
+                        (model) => model.status === 'ACTIVE' || model.id === form.modelId,
+                      )
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}（{MODEL_PROVIDER_LABELS[model.provider]} · {model.modelId}）
+                        </option>
+                      ))}
+                  </select>
                 </Field>
                 <Field label="状态" htmlFor="detail-status">
                   <select

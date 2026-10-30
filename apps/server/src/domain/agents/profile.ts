@@ -1,13 +1,22 @@
 import type { AgentDetail, SnapshotAgent } from '@autosdd/shared';
 
-export function toAgentProfile(detail: AgentDetail): SnapshotAgent {
+interface FallbackModel {
+  id: string;
+  name: string;
+}
+
+export function toAgentProfile(
+  detail: AgentDetail,
+  fallbackModel?: FallbackModel,
+): SnapshotAgent {
   return {
     id: detail.id,
     name: detail.name,
     role: detail.role,
     description: detail.description,
     systemPrompt: detail.systemPrompt,
-    model: detail.model,
+    modelId: detail.modelId ?? fallbackModel?.id ?? '',
+    modelName: detail.modelName ?? fallbackModel?.name ?? '',
     skills: detail.skills.map((skill, index) => ({
       id: skill.id,
       name: skill.name,

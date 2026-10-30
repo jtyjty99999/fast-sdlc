@@ -105,7 +105,7 @@ AutoWonder 的核心架构事实：**平台只负责派发与调度，步骤怎�
 | 数据请求 | TanStack Query 5 | 缓存、失效、轮询兜底 |
 | Markdown | react-markdown 10 + remark-gfm | 默认不渲染原始 HTML，规避 XSS |
 | 测试 | Vitest 5 + RTL + Playwright 1.64 | 单元 / 集成 / E2E |
-| 模型 | Anthropic SDK 1.3（可选） | 默认 Mock，无 Key 可完整演示 |
+| 模型 | 模型注册表：Mock / Anthropic SDK / OpenAI 兼容（fetch 流式） | 默认 Mock，无 Key 可完整演示；其余在界面注册 |
 
 选择 **SQLite + 手写 SQL** 而非 ORM：本系统表少、查询明确，手写 SQL 可读、可控，事务边界清晰；迁移用简单的顺序 SQL 文件 + `schema_migrations` 表。同步 API 也让编排器状态更新天然串行，避免异步写竞争。
 
@@ -128,6 +128,7 @@ AutoWonder 的核心架构事实：**平台只负责派发与调度，步骤怎�
 ```mermaid
 erDiagram
     agents ||--o{ agent_skills : mounts
+    models |o--o{ agents : selected_by
     skills ||--o{ agent_skills : mounted_by
     agents ||--o{ agent_knowledge : mounts
     knowledge_items ||--o{ agent_knowledge : mounted_by
@@ -146,7 +147,18 @@ erDiagram
       text role
       text description
       text system_prompt
-      text model
+      text model_id FK
+      text status
+    }
+    models {
+      text id PK
+      text name
+      text provider
+      text model_id
+      text base_url
+      text api_key
+      int max_tokens
+      int is_default
       text status
     }
     skills {
@@ -227,7 +239,7 @@ erDiagram
 
 ### 4.2 表设计
 
-完整 DDL 见 `apps/server/src/db/migrations/001_init.sql`。约定：主键为 ULID 文本；时间为 ISO-8601 文本；JSON 列以 `_json` 结尾；状态用大写枚举。
+完整 DDL 见 `apps/server/src/db/migrations/`（`001_init.sql`、`002_models.sql`）。约定：主键为 ULID 文本（内置模型除外）；时间为 ISO-8601 文本；JSON 列以 `_json` 结尾；状态用大写枚举。
 
 #### agents
 | 列 | 类型 | 说明 |
@@ -237,9 +249,23 @@ erDiagram
 | role | TEXT | 角色标识，如「需求分析师」 |
 | description | TEXT | 一句话职责 |
 | system_prompt | TEXT | 身份与行为约束（Markdown） |
-| model | TEXT | 模型 ID，默认 `claude-sonnet-5` |
+| model_id | TEXT FK | 绑定的模型；为空时执行期回退默认模型 |
 | status | TEXT | ACTIVE / DISABLED |
 | created_at / updated_at | TEXT | |
+
+#### models
+| 列 | 说明 |
+|---|---|
+| id | `mdl_*`；内置 `mdl_mock_default`、`mdl_claude_sonnet` |
+| name / provider | provider ∈ mock / anthropic / openai |
+| model_id | 传给提供方的模型名，如 `qwen-plus` |
+| base_url | OpenAI 兼容端点必填；Anthropic 可填代理；Mock 忽略 |
+| api_key | 仅服务端读取；公开接口只返回来源（stored / env / none） |
+| max_tokens | 1–65536，默认 4096 |
+| is_default | 全表至多一条为 1（部分唯一索引 `ux_models_default`） |
+| status | ACTIVE / DISABLED |
+
+不变量：默认模型不可删除、不可停用；被 Agent 引用的模型不可删除、不可停用；切换默认在事务内完成（先清空再置 1）。`agents.model_id` 是外键，数据库层同样阻止删除仍被引用的模型。
 
 #### skills
 | 列 | 说明 |
@@ -389,59 +415,61 @@ stateDiagram-v2
 固定顺序，保证可解释、可预览：
 
 ```
-# 你的身份
-角色：{role}
-职责：{description}
-{system_prompt}
+# 身份
+你是「{agent.name}」，担任{agent.role}。
+{agent.description}
+{agent.system_prompt}
 
-# 你的技能（Skills）
-## {skill.name}
+# 已挂载技能
+## 技能 {n}：{skill.name}
 {skill.instructions_md}
 
-# 你必须遵守的知识（Knowledge）
-## {knowledge.title} · {typeLabel}
+# 项目知识
+## [{typeLabel}] {knowledge.title}
 {knowledge.content_md}
 ...
 
 # 输出契约
-- 使用 Markdown 输出
-- 不要编造未提供的业务事实
-- 结论优先，必要时给出依据与风险
+- 只输出 Markdown 正文，不要输出与任务无关的寒暄。
+- 结论先行，再给依据；引用知识时说明来源标题。
+- 不要编造未在任务、知识或依赖产物中出现的事实；不确定时明确标注“待确认”。
+- 产物应当可以直接被下一位同事使用。
 ```
 
 - Skill 按挂载 `sort_order` 注入；知识同样。
 - 知识最多注入 **50 条**（与 AutoWonder 的记忆上限一致），超出按顺序截断并提示。
-- 预算：system ≤ 24k 字符；Skills ≤ 8k；Knowledge ≤ 12k。单条超出按片段截断，末尾追加 `…（已截断）`；预览接口返回 `truncated` 与各段字符数。
+- 预算：Skills ≤ 8k；Knowledge ≤ 12k；依赖产物 ≤ 12k 字符。按条目整条纳入，放不下的条目跳过并标记 `truncated`；预览接口返回各段字符数。
+- `CONTEXT_BUDGETS.system = 24k` 为预留总预算常量，当前未强制裁剪（身份与输出契约应始终保留）。详见 [`CONTEXT_DESIGN.md`](CONTEXT_DESIGN.md)。
 
 #### User Prompt（本步任务）
 
 ```
-# 当前任务
-标题：{task.title}
-描述：{task.description}
-场景：{task.scenario}
+## 当前任务
+- 标题：{task.title}
+- 场景：{task.scenario}
 
-# 当前步骤
-步骤：{step.name}
-{step.instruction_md}
+{task.description}
 
-# 上游产物
-## {dependency step name}
-{dependency output_md | （无）}
-...
+## 当前步骤
+- 步骤：{step.name}（{step.key}）
+- 该步骤完成后需要人工审批        ← 仅 gate_mode=HUMAN_APPROVAL
 
-# 请开始执行
-直接输出本步骤的最终产物，不要输出与任务无关的寒暄。
+## 依赖步骤产物
+
+### {dependency step name}（{stepKey}）
+{dependency.output_md | （该步骤没有产出文本）}
+
+## 你的产出要求
+
+{step.instruction_md | （未填写额外要求，按角色职责完成本步骤）}
 ```
-
-- 依赖产物最多 12k 字符，按 `order_index` 顺序拼接。
 - 组装结果写入 `step_runs.context_json`，运行详情可查看「这一步到底给模型看了什么」。
 
 ### 5.2 Executor 抽象
 
 ```ts
 export interface AgentExecutor {
-  readonly kind: 'mock' | 'anthropic';
+  readonly kind: 'mock' | 'anthropic' | 'openai';
   run(
     input: ExecutorInput,
     emit: (event: ExecutorEvent) => void,
@@ -465,18 +493,36 @@ export interface AgentExecutor {
 #### AnthropicExecutor
 
 - `@anthropic-ai/sdk` 的 `messages.stream`，`system` + 单条 user message。
-- 模型取 Agent 的 `model`；`max_tokens = 4096`。
+- 模型名、`max_tokens`、可选 `baseURL` 均来自模型注册表记录。
 - 逐段 `delta`；结束时读取 `usage.input_tokens/output_tokens`。
 - 支持 `AbortSignal`（取消/超时）；错误统一包装为 `LLM_ERROR`，不向客户端泄露 Key 或堆栈。
-- Key 只存在于服务端环境变量，前端只看到执行器类型。
+
+#### OpenAICompatibleExecutor
+
+- 直接 `fetch` 调用 `{baseUrl}/chat/completions`（已带该路径则不重复拼接），`stream: true`。
+- 兼容 DeepSeek、通义千问、Ollama 等；Key 可空（本地无鉴权服务），有 Key 时发送 `Authorization: Bearer`。
+- 解析 SSE `data:` 行（支持 CRLF 与多行），逐段 emit `delta`，跳过 `[DONE]`；忽略无法解析的片段。
+- usage 兼容 `prompt_tokens/completion_tokens` 与 `input_tokens/output_tokens`；缺失记为 null。
+- 非 2xx 或流内 `error` 转为 `LLM_ERROR`，保留状态码与脱敏后的上游信息；AbortSignal 透传 fetch。
 
 #### 工厂
 
+每次执行步骤时按模型记录实时解析，而非进程启动时固定：
+
 ```
-LLM_PROVIDER=mock        → Mock
-LLM_PROVIDER=anthropic   → Anthropic（缺 Key 启动即报配置错误）
-未设置                    → 有 ANTHROPIC_API_KEY 则 Anthropic，否则 Mock
+resolve step model:
+  agent.modelId ?? 默认模型
+  模型不存在 → 步骤失败「模型不存在或已被删除」
+  模型 DISABLED → 步骤失败「已停用」
+
+createExecutorForModel(model, config):
+  mock      → MockExecutor(delayMs, failStep)
+  anthropic → Key = model.apiKey ?? ANTHROPIC_API_KEY；缺失 → LLM_NOT_CONFIGURED
+  openai    → Key = model.apiKey ?? OPENAI_API_KEY（可空）；baseUrl 必填
 ```
+
+- Key 只存在于服务端存储/环境变量；公开 API 只返回来源（`stored` / `env` / `none`）。
+- 遗留 run 快照若没有 `modelId`，执行期回退当前默认模型。
 
 ### 5.3 编排器
 
@@ -590,7 +636,7 @@ for tag in workflow.tags:
 - 成功：`{ "ok": true, "data": ... }`
 - 失败：`{ "ok": false, "error": { "code": "...", "message": "...", "details": ... } }`
 - 校验：zod；失败返回 400 + `VALIDATION_ERROR` + issues。
-- 错误码：`VALIDATION_ERROR`、`NOT_FOUND`、`CONFLICT`、`WORKFLOW_INVALID`、`NO_WORKFLOW_MATCH`、`RUN_IN_PROGRESS`、`APPROVAL_NOT_PENDING`、`LLM_NOT_CONFIGURED`、`LLM_ERROR`、`INTERNAL`。
+- 错误码：`VALIDATION_ERROR`、`NOT_FOUND`、`CONFLICT`、`WORKFLOW_INVALID`、`NO_WORKFLOW_MATCH`、`RUN_IN_PROGRESS`、`APPROVAL_NOT_PENDING`、`MODEL_NOT_FOUND`、`MODEL_DISABLED`、`MODEL_IN_USE`、`MODEL_IS_DEFAULT`、`LLM_NOT_CONFIGURED`、`LLM_ERROR`、`INTERNAL`。
 - 时间均为 ISO-8601 UTC 字符串。
 
 ### 6.2 资源接口
@@ -603,7 +649,14 @@ for tag in workflow.tags:
 | PUT | `/api/agents/:id` | 更新基本信息 |
 | DELETE | `/api/agents/:id` | 被 Workflow 引用时 409 |
 | PUT | `/api/agents/:id/mounts` | `{ skillIds, knowledgeIds }` 整体替换挂载 |
-| GET | `/api/agents/:id/context-preview?stepName=` | 返回组装后的 systemPrompt / userPrompt / 统计 |
+| GET | `/api/agents/:id/context-preview` | 返回组装后的 systemPrompt / userPrompt / 统计 |
+| GET | `/api/models?q=&provider=` | 模型列表（含 keySource / isDefault / agentCount） |
+| POST | `/api/models` | 创建模型；apiKey 仅写入，永不回传 |
+| GET | `/api/models/:id` | 模型详情（keySource 而非 Key） |
+| PUT | `/api/models/:id` | 更新；apiKey 省略=保留、`""`=清空 |
+| DELETE | `/api/models/:id` | 默认或被 Agent 引用时 409 |
+| POST | `/api/models/:id/default` | 切换默认模型（仅 ACTIVE） |
+| POST | `/api/models/:id/test` | 真实调用一次模型，返回 `{ok, latencyMs, sample}` |
 | GET | `/api/skills?q=` | 技能列表 |
 | POST/PUT/DELETE | `/api/skills[/:id]` | 技能 CRUD；删除级联解除挂载 |
 | GET | `/api/knowledge?q=&type=` | 知识列表 |
@@ -829,7 +882,7 @@ SSE 连接流程：先订阅内存事件 → 回放 `Last-Event-ID` 之后的数
 | 风险 | 措施 |
 |---|---|
 | 未授权访问 | 默认绑定 `127.0.0.1`；文档明确「无鉴权，勿公网暴露」 |
-| API Key 泄露 | 仅服务端环境变量；错误信息脱敏；前端只显示执行器类型 |
+| API Key 泄露 | 只在服务端读取（模型记录或环境变量）；公开接口仅返回来源；错误信息脱敏；日志不输出 Key |
 | Markdown XSS | `react-markdown` 默认不渲染 HTML；不启用 `rehype-raw` |
 | Prompt 注入 | 任务/知识文本以明确分隔段注入；声明为数据而非指令；不构成安全边界，文档说明 |
 | 请求体过大 | Fastify `bodyLimit = 1MB`；各文本字段长度上限（zod） |
@@ -880,15 +933,16 @@ autosdd/
 │   │   ├── index.ts             # 监听入口
 │   │   ├── app.ts               # buildApp（可测试）
 │   │   ├── config.ts
-│   │   ├── db/{database,migrate,seed}.ts + migrations/001_init.sql
+│   │   ├── db/{database,migrate,seed}.ts + migrations/{001_init,002_models}.sql
 │   │   ├── http/{errors,respond,validate}.ts
 │   │   ├── domain/agents/…      # repository / service / routes / schemas
 │   │   ├── domain/skills/…
 │   │   ├── domain/knowledge/…
 │   │   ├── domain/workflows/…   # + matcher / validator
+│   │   ├── domain/models/…      # repository / service / routes
 │   │   ├── domain/tasks/…
 │   │   ├── execution/{types,context-builder,run-events,orchestrator,recovery}.ts
-│   │   ├── execution/executors/{mock,anthropic,factory}.ts
+│   │   ├── execution/executors/{mock,anthropic,openai,factory}.ts
 │   │   └── overview/routes.ts
 │   └── test/*.test.ts
 ├── apps/web/
@@ -898,7 +952,7 @@ autosdd/
 │       ├── api/{client,hooks,sse}.ts
 │       ├── styles/{tokens,global}.css
 │       ├── components/*.tsx + *.css
-│       └── pages/{Overview,Agents,AgentDetail,Skills,Knowledge,Workflows,WorkflowEditor,Tasks,TaskDetail}
+│       └── pages/{Overview,Agents,AgentDetail,Skills,Knowledge,Models,Workflows,WorkflowEditor,Tasks,TaskDetail}
 └── e2e/{playwright.config.ts,tests/smoke.spec.ts}
 ```
 
@@ -906,12 +960,12 @@ autosdd/
 
 ## 11. 演示脚本（种子数据）
 
-1. **资产**：6 个 Agent（需求分析师、系统架构师、开发工程师、测试工程师、代码评审员、技术写作者）、8 个 Skill、8 条知识。
+1. **资产**：7 个 Agent（需求分析师、系统架构师、开发工程师、测试工程师、代码评审员、技术写作者、文档专家）、9 个 Skill、8 条知识；2 个内置模型（Mock 默认、Claude Sonnet 5）。
 2. **流程**：
-   - 新功能开发：需求分析 → 架构设计 → 编码实现（人工卡点）→ 质量验证 → 代码评审（人工卡点）；
+   - 新功能开发：需求分析 → 架构设计 → 编码实现（人工卡点）→ 质量验证 → 代码评审（人工卡点）→ 文档编写 → 文档评审；
    - Bug 修复：问题定位 → 修复实现 → 回归验证；
    - 代码评审：静态评审 → 评审结论。
-3. **任务**：一个已完成的历史任务（含 5 步产物），一个待运行任务。
+3. **任务**：一个已完成的历史任务（含 7 步产物），一个待运行任务。
 4. **演示路径**：总览 → 查看历史任务产物 → 新建任务（自动推荐「新功能开发」）→ 运行 → 观察流式输出 → 审批通过 → 成功；回到总览看数字变化。
 
 ---
@@ -936,10 +990,11 @@ autosdd/
 ## 13. 验证清单
 
 - [x] `pnpm typecheck` 通过
-- [x] `pnpm test` 通过（server 87 + web 12）；覆盖率高于门禁
+- [x] `pnpm test` 通过（server 111 + web 16）；覆盖率高于门禁
 - [x] `pnpm build` 成功；`pnpm start` 单端口可访问（E2E 即以此形态运行）
 - [x] 创建 Agent 并挂载技能/知识，上下文预览顺序正确（集成测试覆盖）
 - [x] 创建含人工卡点的 Workflow，校验错误可见（集成测试覆盖）
 - [x] 任务自动匹配 Workflow；运行后 SSE 实时更新（集成 + E2E 覆盖）
 - [x] 审批通过继续、驳回失败、取消、重跑、服务重启恢复符合预期（集成测试覆盖）
-- [x] E2E 冒烟通过
+- [x] 模型 CRUD、Key 永不回传、默认切换与删除/停用保护（集成测试覆盖）
+- [x] E2E 冒烟通过（任务生命周期 + 模型连接测试）

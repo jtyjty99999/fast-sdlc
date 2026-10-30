@@ -1,10 +1,11 @@
-import { DEFAULT_MODEL, DEFAULT_STEP_TIMEOUT_SECONDS } from '@autosdd/shared';
+import { DEFAULT_STEP_TIMEOUT_SECONDS } from '@autosdd/shared';
 import type { Db } from './database';
 import { nowIso } from './clock';
 import { AgentRepository } from '../domain/agents/repository';
 import { toAgentProfile } from '../domain/agents/profile';
 import { SkillRepository } from '../domain/skills/repository';
 import { KnowledgeRepository } from '../domain/knowledge/repository';
+import { ModelRepository } from '../domain/models/repository';
 import { WorkflowRepository } from '../domain/workflows/repository';
 import { TaskRepository } from '../domain/tasks/repository';
 import { RunRepository } from '../domain/tasks/run-repository';
@@ -56,6 +57,9 @@ export function seed(db: Db): void {
   const tasks = new TaskRepository(db);
   const runs = new RunRepository(db);
   const events = new RunEventStore(db);
+  const models = new ModelRepository(db);
+  const defaultModel = models.findDefault();
+  if (!defaultModel) throw new Error('seed: 缺少默认模型，请先执行数据库迁移');
 
   const skillIds = new Map<string, string>();
   for (const seedSkill of SEED_SKILLS) {
@@ -76,7 +80,7 @@ export function seed(db: Db): void {
       role: seedAgent.role,
       description: seedAgent.description,
       systemPrompt: seedAgent.systemPrompt,
-      model: DEFAULT_MODEL,
+      modelId: defaultModel.id,
       status: 'ACTIVE',
     });
     agentIds.set(created.name, created.id);
@@ -119,7 +123,12 @@ export function seed(db: Db): void {
       scenario: SEED_COMPLETED_TASK.scenario,
       workflowId: completedWorkflow.id,
     });
-    seedCompletedRun({ agents, runs, tasks, events, workflows }, task.id, completedWorkflow.id);
+    seedCompletedRun(
+      { agents, runs, tasks, events, workflows },
+      task.id,
+      completedWorkflow.id,
+      defaultModel.modelId,
+    );
   }
 
   tasks.create({
@@ -142,6 +151,7 @@ function seedCompletedRun(
   deps: CompletedRunDeps,
   taskId: string,
   workflowId: string,
+  modelId: string,
 ): void {
   const workflow = deps.workflows.findById(workflowId);
   if (!workflow) return;
@@ -207,7 +217,7 @@ function seedCompletedRun(
       type: RUN_EVENT_TYPES.STEP_READY,
       message: `步骤「${step.name}」就绪`,
     });
-    deps.runs.markStepRunning(stepRun.id, context, 'mock');
+    deps.runs.markStepRunning(stepRun.id, context, modelId);
     deps.events.append({
       runId: run.id,
       stepRunId: stepRun.id,
@@ -217,7 +227,7 @@ function seedCompletedRun(
     deps.runs.markStepWaitingApproval(stepRun.id, outputMd, {
       inputTokens: Math.ceil((context.systemPrompt.length + context.userPrompt.length) / 3),
       outputTokens: Math.ceil(outputMd.length / 3),
-      model: 'mock',
+      model: modelId,
     });
     deps.events.append({
       runId: run.id,

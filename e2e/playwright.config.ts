@@ -31,7 +31,6 @@ export default defineConfig({
       HOST: '127.0.0.1',
       PORT: String(PORT),
       DATABASE_PATH: './data/e2e.db',
-      LLM_PROVIDER: 'mock',
       MOCK_DELAY_MS: '5',
       STEP_TIMEOUT_SECONDS: '30',
     },

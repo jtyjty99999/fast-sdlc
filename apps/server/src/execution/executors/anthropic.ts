@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { DEFAULT_MODEL_MAX_TOKENS } from '@autosdd/shared';
 import type {
   AgentExecutor,
   ExecutorEmit,
@@ -9,16 +10,23 @@ import type {
 interface AnthropicExecutorOptions {
   apiKey: string;
   model: string;
+  baseURL?: string | undefined;
+  maxTokens?: number | undefined;
 }
 
 export class AnthropicExecutor implements AgentExecutor {
   readonly kind = 'anthropic' as const;
   readonly model: string;
   private readonly client: Anthropic;
+  private readonly maxTokens: number;
 
   constructor(options: AnthropicExecutorOptions) {
     this.model = options.model;
-    this.client = new Anthropic({ apiKey: options.apiKey });
+    this.maxTokens = options.maxTokens ?? DEFAULT_MODEL_MAX_TOKENS;
+    this.client = new Anthropic({
+      apiKey: options.apiKey,
+      ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+    });
   }
 
   async run(
@@ -30,7 +38,7 @@ export class AnthropicExecutor implements AgentExecutor {
     const model = input.model || this.model;
     const stream = this.client.messages.stream({
       model,
-      max_tokens: 4096,
+      max_tokens: this.maxTokens,
       system: input.systemPrompt,
       messages: [{ role: 'user', content: input.userPrompt }],
     });

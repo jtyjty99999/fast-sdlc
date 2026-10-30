@@ -8,9 +8,8 @@ describe('loadConfig', () => {
     expect(config.host).toBe('127.0.0.1');
     expect(config.port).toBe(4000);
     expect(config.databasePath).toBe('./data/autosdd.db');
-    expect(config.llmProvider).toBe('auto');
     expect(config.anthropicApiKey).toBeUndefined();
-    expect(config.anthropicModel).toBe('claude-sonnet-5');
+    expect(config.openaiApiKey).toBeUndefined();
     expect(config.mockFailStep).toBeUndefined();
     expect(config.stepTimeoutSeconds).toBeGreaterThan(0);
   });
@@ -20,9 +19,8 @@ describe('loadConfig', () => {
       HOST: ' 0.0.0.0 ',
       PORT: '5000',
       DATABASE_PATH: ' ./tmp/test.db ',
-      LLM_PROVIDER: ' ANTHROPIC ',
       ANTHROPIC_API_KEY: ' test-key ',
-      ANTHROPIC_MODEL: ' claude-opus-5 ',
+      OPENAI_API_KEY: ' test-openai-key ',
       MOCK_DELAY_MS: '10',
       MOCK_FAIL_STEP: ' 编码实现 ',
       STEP_TIMEOUT_SECONDS: '60',
@@ -32,24 +30,21 @@ describe('loadConfig', () => {
       host: '0.0.0.0',
       port: 5000,
       databasePath: './tmp/test.db',
-      llmProvider: 'anthropic',
       anthropicApiKey: 'test-key',
-      anthropicModel: 'claude-opus-5',
+      openaiApiKey: 'test-openai-key',
       mockDelayMs: 10,
       mockFailStep: '编码实现',
       stepTimeoutSeconds: 60,
     });
   });
 
-  test('falls back for unknown provider and invalid numbers', () => {
+  test('falls back for invalid numbers', () => {
     const config = loadConfig({
-      LLM_PROVIDER: 'gpt',
       PORT: 'not-a-number',
       MOCK_DELAY_MS: '-5',
       STEP_TIMEOUT_SECONDS: 'NaN',
     });
 
-    expect(config.llmProvider).toBe('auto');
     expect(config.port).toBe(4000);
     expect(config.mockDelayMs).toBeGreaterThanOrEqual(0);
     expect(config.stepTimeoutSeconds).toBeGreaterThan(0);

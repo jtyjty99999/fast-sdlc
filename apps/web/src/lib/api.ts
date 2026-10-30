@@ -10,6 +10,9 @@ import type {
   KnowledgeItem,
   MatchCandidate,
   MatchInput,
+  Model,
+  ModelInput,
+  ModelTestResult,
   OverviewData,
   RunDetail,
   RunEvent,
@@ -102,6 +105,20 @@ export const api = {
       request<AgentDetail>(`/api/agents/${id}/mounts`, { method: 'PUT', body: input }),
     contextPreview: (id: string) =>
       request<ContextPreview>(`/api/agents/${id}/context-preview`),
+  },
+
+  models: {
+    list: (filters: { q?: string; provider?: string } = {}) =>
+      request<Model[]>(`/api/models${query(filters)}`),
+    get: (id: string) => request<Model>(`/api/models/${id}`),
+    create: (input: ModelInput) =>
+      request<Model>('/api/models', { method: 'POST', body: input }),
+    update: (id: string, input: ModelInput) =>
+      request<Model>(`/api/models/${id}`, { method: 'PUT', body: input }),
+    remove: (id: string) => request<{ deleted: boolean }>(`/api/models/${id}`, { method: 'DELETE' }),
+    setDefault: (id: string) =>
+      request<Model>(`/api/models/${id}/default`, { method: 'POST' }),
+    test: (id: string) => request<ModelTestResult>(`/api/models/${id}/test`, { method: 'POST' }),
   },
 
   skills: {

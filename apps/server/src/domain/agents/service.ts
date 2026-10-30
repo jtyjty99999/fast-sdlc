@@ -6,9 +6,10 @@ import type {
   ContextPreview,
   SnapshotAgent,
 } from '@autosdd/shared';
-import type { AgentRepository } from './repository';
+import type { AgentRepository, AgentWrite } from './repository';
 import type { SkillRepository } from '../skills/repository';
 import type { KnowledgeRepository } from '../knowledge/repository';
+import type { ModelRepository } from '../models/repository';
 import { badRequest, conflict, notFound } from '../../http/errors';
 import { buildContext } from '../../execution/context-builder';
 import { toAgentProfile } from './profile';
@@ -32,6 +33,7 @@ export class AgentService {
     private readonly agents: AgentRepository,
     private readonly skills: SkillRepository,
     private readonly knowledge: KnowledgeRepository,
+    private readonly models: ModelRepository,
   ) {}
 
   list(q?: string): Agent[] {
@@ -45,11 +47,18 @@ export class AgentService {
   }
 
   create(input: AgentInput): Agent {
-    return this.agents.create(input);
+    const modelId = this.resolveModelId(input.modelId, null);
+    return this.agents.create(this.toWrite(input, modelId));
   }
 
   update(id: string, input: AgentInput): Agent {
-    const updated = this.agents.update(id, input);
+    const existing = this.agents.findById(id);
+    if (!existing) throw notFound('Agent 不存在');
+    const modelId =
+      input.modelId !== undefined
+        ? this.resolveModelId(input.modelId, null)
+        : (existing.modelId ?? this.resolveModelId(undefined, null));
+    const updated = this.agents.update(id, this.toWrite(input, modelId));
     if (!updated) throw notFound('Agent 不存在');
     return updated;
   }
@@ -88,7 +97,12 @@ export class AgentService {
   }
 
   getProfile(id: string): SnapshotAgent {
-    return toAgentProfile(this.get(id));
+    const detail = this.get(id);
+    const fallback = detail.modelId ? undefined : this.models.findDefault();
+    return toAgentProfile(
+      detail,
+      fallback ? { id: fallback.id, name: fallback.name } : undefined,
+    );
   }
 
   contextPreview(id: string): ContextPreview {
@@ -109,6 +123,32 @@ export class AgentService {
         truncated: context.truncated,
         sections: context.sections,
       },
+    };
+  }
+
+  private resolveModelId(explicit: string | undefined, fallbackId: string | null): string {
+    const id = explicit ?? fallbackId ?? this.models.findDefault()?.id;
+    if (!id) {
+      throw badRequest('MODEL_NOT_FOUND', '没有可用模型，请先在模型管理中创建模型');
+    }
+    const model = this.models.findById(id);
+    if (!model) {
+      throw badRequest('MODEL_NOT_FOUND', '指定的模型不存在，请刷新后重试');
+    }
+    if (model.status !== 'ACTIVE') {
+      throw badRequest('MODEL_DISABLED', `模型「${model.name}」已停用，请选择其他模型`);
+    }
+    return model.id;
+  }
+
+  private toWrite(input: AgentInput, modelId: string): AgentWrite {
+    return {
+      name: input.name,
+      role: input.role,
+      description: input.description,
+      systemPrompt: input.systemPrompt,
+      modelId,
+      status: input.status,
     };
   }
 }

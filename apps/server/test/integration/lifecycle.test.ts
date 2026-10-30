@@ -90,11 +90,18 @@ describe('task lifecycle', () => {
 
     const waiting = await waitForTaskStatus(app, taskId, ['WAITING_APPROVAL']);
     const gated = stepByKey(waiting, 'dev');
-    expect(stepByKey(waiting, 'req').status).toBe('SUCCEEDED');
-    expect(stepByKey(waiting, 'req').outputMd).toBeTruthy();
+    const reqStep = stepByKey(waiting, 'req');
+    expect(reqStep.status).toBe('SUCCEEDED');
+    expect(reqStep.outputMd).toBeTruthy();
     expect(gated.status).toBe('WAITING_APPROVAL');
     expect(gated.outputMd).toBeTruthy();
     expect(gated.approval?.status).toBe('PENDING');
+
+    // 上下文：system 来自 Agent 画像，user 含当前步骤指令与直接依赖产物
+    expect(reqStep.context?.systemPrompt).toContain('需求分析师');
+    expect(reqStep.context?.userPrompt).toContain('输出需求规格');
+    expect(gated.context?.userPrompt).toContain('按需求实现');
+    expect(gated.context?.userPrompt).toContain(reqStep.outputMd!);
 
     // 再次启动应被拒绝
     const conflict = await api(app, {
@@ -105,7 +112,6 @@ describe('task lifecycle', () => {
     if (!conflict.body.ok) expect(conflict.body.error.code).toBe('RUN_IN_PROGRESS');
 
     // 未到审批卡点时审批另一步骤应报错
-    const reqStep = stepByKey(waiting, 'req');
     const invalidApproval = await api(app, {
       method: 'POST',
       url: `/api/runs/${waiting.run?.id}/steps/${reqStep.id}/approval`,
@@ -135,7 +141,12 @@ describe('task lifecycle', () => {
       expect(step.outputMd?.length).toBeGreaterThan(0);
       expect(step.model).toBe('mock');
       expect(step.inputTokens).toBeGreaterThan(0);
+      expect(step.context?.systemPrompt.length).toBeGreaterThan(0);
     }
+    // 审批恢复后继续执行的步骤，同样拿到直接依赖的最终产物
+    expect(stepByKey(finished, 'verify').context?.userPrompt).toContain(
+      stepByKey(finished, 'dev').outputMd!,
+    );
 
     const events = okData<RunEvent[]>(
       await api(app, { method: 'GET', url: `/api/runs/${runId}/events` }),

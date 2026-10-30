@@ -7,7 +7,8 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
   const config: AppConfig = {
     ...loadConfig({}),
     databasePath: ':memory:',
-    llmProvider: 'mock',
+    anthropicApiKey: undefined,
+    openaiApiKey: undefined,
     mockDelayMs: 0,
     mockFailStep: undefined,
     stepTimeoutSeconds: 5,

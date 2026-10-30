@@ -1,13 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Agent, AgentInput } from '@autosdd/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { MODEL_PROVIDER_LABELS, type Agent, type AgentInput } from '@autosdd/shared';
 import { api, errorMessage } from '../lib/api';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { Field } from './ui/Field';
 import { useToast } from './ui/Toast';
-
-const DEFAULT_MODEL = 'claude-sonnet-5';
 
 interface AgentFormModalProps {
   open: boolean;
@@ -16,41 +14,38 @@ interface AgentFormModalProps {
   onSaved?: (agent: Agent) => void;
 }
 
-export function AgentFormModal({ open, agent, onClose, onSaved }: AgentFormModalProps) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [form, setForm] = useState<AgentInput>({
+function initialForm(agent?: Agent | null): AgentInput {
+  if (agent) {
+    return {
+      name: agent.name,
+      role: agent.role,
+      description: agent.description,
+      systemPrompt: agent.systemPrompt,
+      modelId: agent.modelId ?? '',
+      status: agent.status,
+    };
+  }
+  return {
     name: '',
     role: '',
     description: '',
     systemPrompt: '',
-    model: DEFAULT_MODEL,
+    modelId: '',
     status: 'ACTIVE',
-  });
+  };
+}
+
+export function AgentFormModal({ open, agent, onClose, onSaved }: AgentFormModalProps) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [form, setForm] = useState<AgentInput>(initialForm());
   const [error, setError] = useState<string | null>(null);
+  const models = useQuery({ queryKey: ['models'], queryFn: () => api.models.list() });
 
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setForm(
-      agent
-        ? {
-            name: agent.name,
-            role: agent.role,
-            description: agent.description,
-            systemPrompt: agent.systemPrompt,
-            model: agent.model,
-            status: agent.status,
-          }
-        : {
-            name: '',
-            role: '',
-            description: '',
-            systemPrompt: '',
-            model: DEFAULT_MODEL,
-            status: 'ACTIVE',
-          },
-    );
+    setForm(initialForm(agent));
   }, [open, agent]);
 
   const mutation = useMutation({
@@ -80,7 +75,10 @@ export function AgentFormModal({ open, agent, onClose, onSaved }: AgentFormModal
       setError('名称与角色为必填项。');
       return;
     }
-    mutation.mutate(form);
+    mutation.mutate({
+      ...form,
+      modelId: form.modelId?.trim() || undefined,
+    });
   };
 
   return (
@@ -141,14 +139,24 @@ export function AgentFormModal({ open, agent, onClose, onSaved }: AgentFormModal
             maxLength={30_000}
           />
         </Field>
-        <Field label="模型" htmlFor="agent-model">
-          <input
+        <Field label="模型" htmlFor="agent-model" hint="新建时留空则跟随默认模型。">
+          <select
             id="agent-model"
-            className="input"
-            value={form.model}
-            onChange={(event) => update({ model: event.target.value })}
-            maxLength={120}
-          />
+            className="select"
+            value={form.modelId ?? ''}
+            onChange={(event) => update({ modelId: event.target.value })}
+          >
+            {!agent && (form.modelId ?? '') === '' ? (
+              <option value="">跟随默认模型</option>
+            ) : null}
+            {(models.data ?? [])
+              .filter((model) => model.status === 'ACTIVE' || model.id === form.modelId)
+              .map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}（{MODEL_PROVIDER_LABELS[model.provider]} · {model.modelId}）
+                </option>
+              ))}
+          </select>
         </Field>
         <Field label="状态" htmlFor="agent-status">
           <select

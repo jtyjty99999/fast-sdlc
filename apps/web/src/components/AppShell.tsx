@@ -16,6 +16,7 @@ const NAV_GROUPS = [
       { to: '/agents', label: 'Agents', icon: '◉' },
       { to: '/skills', label: 'Skills', icon: '✦' },
       { to: '/knowledge', label: '知识库', icon: '◇' },
+      { to: '/models', label: '模型管理', icon: '◈' },
     ],
   },
   {
@@ -32,6 +33,7 @@ function breadcrumbFor(pathname: string): string[] {
     agents: 'Agents',
     skills: 'Skills',
     knowledge: '知识库',
+    models: '模型管理',
     workflows: '工作流',
     tasks: '任务',
   };

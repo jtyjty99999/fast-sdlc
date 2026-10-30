@@ -3,6 +3,8 @@ import type {
   APPROVAL_STATUSES,
   GATE_MODES,
   KNOWLEDGE_TYPES,
+  MODEL_PROVIDERS,
+  MODEL_STATUSES,
   STEP_STATUSES,
   TASK_STATUSES,
   WORKFLOW_STATUSES,
@@ -15,6 +17,9 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type StepStatus = (typeof STEP_STATUSES)[number];
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 export type KnowledgeType = (typeof KNOWLEDGE_TYPES)[number];
+export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
+export type ModelStatus = (typeof MODEL_STATUSES)[number];
+export type ModelKeySource = 'stored' | 'env' | 'none';
 export type ApprovalDecision = 'APPROVED' | 'REJECTED';
 
 export interface Agent {
@@ -23,12 +28,47 @@ export interface Agent {
   role: string;
   description: string;
   systemPrompt: string;
-  model: string;
+  modelId: string | null;
+  modelName: string | null;
+  modelProvider: ModelProvider | null;
   status: AgentStatus;
   skillCount: number;
   knowledgeCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Model {
+  id: string;
+  name: string;
+  provider: ModelProvider;
+  modelId: string;
+  baseUrl: string;
+  maxTokens: number;
+  keySource: ModelKeySource;
+  isDefault: boolean;
+  status: ModelStatus;
+  agentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ModelInput {
+  name: string;
+  provider: ModelProvider;
+  modelId: string;
+  baseUrl?: string;
+  apiKey?: string;
+  maxTokens?: number;
+  status?: ModelStatus;
+}
+
+export interface ModelTestResult {
+  ok: true;
+  latencyMs: number;
+  provider: ModelProvider;
+  model: string;
+  sample: string;
 }
 
 export interface Skill {
@@ -228,7 +268,7 @@ export interface OverviewData {
     successRate: number;
   };
   executor: {
-    kind: 'mock' | 'anthropic';
+    kind: ModelProvider;
     model: string;
     label: string;
   };
@@ -256,7 +296,8 @@ export interface SnapshotAgent {
   role: string;
   description: string;
   systemPrompt: string;
-  model: string;
+  modelId: string;
+  modelName: string;
   skills: SnapshotSkill[];
   knowledge: SnapshotKnowledge[];
 }

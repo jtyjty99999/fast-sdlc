@@ -21,14 +21,20 @@ export const STEP_STATUSES = [
 ] as const;
 export const APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const;
 export const KNOWLEDGE_TYPES = ['RULE', 'BUSINESS', 'API', 'LESSON', 'MEMORY'] as const;
+export const MODEL_PROVIDERS = ['mock', 'anthropic', 'openai'] as const;
+export const MODEL_STATUSES = ['ACTIVE', 'DISABLED'] as const;
 
 export const TERMINAL_TASK_STATUSES: readonly string[] = ['SUCCEEDED', 'FAILED', 'CANCELED'];
 export const ACTIVE_TASK_STATUSES: readonly string[] = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL'];
 export const SUCCESS_STEP_STATUSES: readonly string[] = ['SUCCEEDED', 'SKIPPED'];
 
-export const DEFAULT_MODEL = 'claude-sonnet-5';
 export const DEFAULT_STEP_TIMEOUT_SECONDS = 300;
 export const DEFAULT_MOCK_DELAY_MS = 250;
+export const DEFAULT_MODEL_MAX_TOKENS = 4096;
+// Built-in models are inserted by migration 002 so every database has a
+// usable default even before seeding.
+export const DEFAULT_MODEL_ID = 'mdl_mock_default';
+export const BUILTIN_ANTHROPIC_MODEL_ID = 'mdl_claude_sonnet';
 
 export const CONTEXT_BUDGETS = {
   system: 24_000,
@@ -66,6 +72,23 @@ export const AGENT_STATUS_LABELS: Record<string, string> = {
 export const WORKFLOW_STATUS_LABELS: Record<string, string> = {
   DRAFT: '草稿',
   ENABLED: '已启用',
+};
+
+export const MODEL_PROVIDER_LABELS: Record<string, string> = {
+  mock: 'Mock',
+  anthropic: 'Anthropic',
+  openai: 'OpenAI 兼容',
+};
+
+export const MODEL_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: '启用',
+  DISABLED: '停用',
+};
+
+export const MODEL_KEY_SOURCE_LABELS: Record<string, string> = {
+  stored: '已保存',
+  env: '环境变量',
+  none: '未配置',
 };
 
 export const KNOWLEDGE_TYPE_LABELS: Record<string, string> = {

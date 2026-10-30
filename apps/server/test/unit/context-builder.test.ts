@@ -10,7 +10,8 @@ function makeInput(overrides: Partial<ContextBuildInput> = {}): ContextBuildInpu
     role: '需求分析',
     description: '负责把模糊诉求变成可验收需求。',
     systemPrompt: '保持克制，结论先行。',
-    model: 'claude-sonnet-5',
+    modelId: 'mdl_mock_default',
+    modelName: 'Mock 模拟模型',
     skills: [
       {
         id: 'skill_1',

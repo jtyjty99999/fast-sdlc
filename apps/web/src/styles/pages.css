@@ -304,6 +304,11 @@
   color: var(--know);
 }
 
+.list-row .lr-ic.model {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .list-row .lr-main {
   flex: 1;
   min-width: 0;

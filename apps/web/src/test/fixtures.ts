@@ -1,4 +1,22 @@
-import type { MatchCandidate, StepRun, WorkflowSummary } from '@autosdd/shared';
+import type { MatchCandidate, Model, StepRun, WorkflowSummary } from '@autosdd/shared';
+
+export function makeModel(overrides: Partial<Model> = {}): Model {
+  return {
+    id: 'mdl_mock_default',
+    name: 'Mock 模拟模型',
+    provider: 'mock',
+    modelId: 'mock',
+    baseUrl: '',
+    maxTokens: 4096,
+    keySource: 'none',
+    isDefault: true,
+    status: 'ACTIVE',
+    agentCount: 0,
+    createdAt: '2026-10-01T08:00:00.000Z',
+    updatedAt: '2026-10-01T08:00:00.000Z',
+    ...overrides,
+  };
+}
 
 export function makeStep(overrides: Partial<StepRun> = {}): StepRun {
   return {

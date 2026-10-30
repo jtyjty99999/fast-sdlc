@@ -24,6 +24,9 @@ import { registerSkillRoutes } from './domain/skills/routes';
 import { KnowledgeRepository } from './domain/knowledge/repository';
 import { KnowledgeService } from './domain/knowledge/service';
 import { registerKnowledgeRoutes } from './domain/knowledge/routes';
+import { ModelRepository } from './domain/models/repository';
+import { ModelService } from './domain/models/service';
+import { registerModelRoutes } from './domain/models/routes';
 import { WorkflowRepository } from './domain/workflows/repository';
 import { WorkflowService } from './domain/workflows/service';
 import { registerWorkflowRoutes } from './domain/workflows/routes';
@@ -33,7 +36,6 @@ import { TaskService } from './domain/tasks/service';
 import { registerTaskRoutes } from './domain/tasks/routes';
 import { registerOverviewRoutes } from './overview/routes';
 import { RunEventStore } from './execution/run-events';
-import { createExecutor } from './execution/executors/factory';
 import { Orchestrator, type OrchestratorLogger } from './execution/orchestrator';
 
 const WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
@@ -65,11 +67,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const agents = new AgentRepository(db);
   const skills = new SkillRepository(db);
   const knowledge = new KnowledgeRepository(db);
+  const models = new ModelRepository(db);
   const workflows = new WorkflowRepository(db);
   const tasks = new TaskRepository(db);
   const runs = new RunRepository(db);
   const events = new RunEventStore(db);
-  const executor = createExecutor(config);
 
   const orchestrator = new Orchestrator({
     tasks,
@@ -77,7 +79,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     workflows,
     agents,
     events,
-    executor,
+    models,
     config,
     logger: toOrchestratorLogger(app.log),
   });
@@ -86,9 +88,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     app.log.warn({ recovered }, 'recovered interrupted runs');
   }
 
-  const agentService = new AgentService(agents, skills, knowledge);
+  const agentService = new AgentService(agents, skills, knowledge, models);
   const skillService = new SkillService(skills);
   const knowledgeService = new KnowledgeService(knowledge);
+  const modelService = new ModelService(models, config);
   const workflowService = new WorkflowService(workflows, agents);
   const taskService = new TaskService(tasks, runs, workflows, events, orchestrator);
 
@@ -133,15 +136,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await registerAgentRoutes(app, agentService);
   await registerSkillRoutes(app, skillService);
   await registerKnowledgeRoutes(app, knowledgeService);
+  await registerModelRoutes(app, modelService);
   await registerWorkflowRoutes(app, workflowService);
   await registerTaskRoutes(app, taskService);
   await registerOverviewRoutes(app, {
     agents,
     skills,
     knowledge,
+    models,
     workflows,
     tasks,
-    config,
   });
 
   if (hasWebDist) {

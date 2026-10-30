@@ -12,7 +12,8 @@ export interface AgentProfile {
   role: string;
   description: string;
   systemPrompt: string;
-  model: string;
+  modelId: string;
+  modelName: string;
   skills: SnapshotSkill[];
   knowledge: SnapshotKnowledge[];
 }
@@ -66,7 +67,7 @@ export interface ExecutorResult {
 }
 
 export interface AgentExecutor {
-  readonly kind: 'mock' | 'anthropic';
+  readonly kind: 'mock' | 'anthropic' | 'openai';
   readonly model: string;
   run(
     input: ExecutorInput,

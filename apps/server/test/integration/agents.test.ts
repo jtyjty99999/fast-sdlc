@@ -7,6 +7,7 @@ import type {
   KnowledgeItem,
   Skill,
 } from '@autosdd/shared';
+import { DEFAULT_MODEL_ID } from '@autosdd/shared';
 import { api, createAgent, createTestApp, createWorkflow, okData } from '../helpers';
 
 const apps: FastifyInstance[] = [];
@@ -34,7 +35,9 @@ describe('agents API', () => {
     const agent = okData(created);
     expect(agent.name).toBe('架构师');
     expect(agent.status).toBe('ACTIVE');
-    expect(agent.model).toBe('claude-sonnet-5');
+    expect(agent.modelId).toBe(DEFAULT_MODEL_ID);
+    expect(agent.modelName).toBe('Mock 模拟模型');
+    expect(agent.modelProvider).toBe('mock');
 
     const updated = okData<Agent>(
       await api(app, {
@@ -159,5 +162,89 @@ describe('agents API', () => {
     });
 
     expect(result.status).toBe(404);
+  });
+
+  test('binds an explicitly selected model and keeps it when updates omit the field', async () => {
+    const app = await setup();
+    const created = okData<Agent>(
+      await api(app, {
+        method: 'POST',
+        url: '/api/agents',
+        payload: { name: '架构师', role: '架构', modelId: 'mdl_claude_sonnet' },
+      }),
+    );
+    expect(created.modelId).toBe('mdl_claude_sonnet');
+    expect(created.modelProvider).toBe('anthropic');
+
+    const updated = okData<Agent>(
+      await api(app, {
+        method: 'PUT',
+        url: `/api/agents/${created.id}`,
+        payload: { name: '首席架构师', role: '架构' },
+      }),
+    );
+    expect(updated.modelId).toBe('mdl_claude_sonnet');
+
+    const switched = okData<Agent>(
+      await api(app, {
+        method: 'PUT',
+        url: `/api/agents/${created.id}`,
+        payload: { name: '首席架构师', role: '架构', modelId: DEFAULT_MODEL_ID },
+      }),
+    );
+    expect(switched.modelId).toBe(DEFAULT_MODEL_ID);
+  });
+
+  test('rejects unknown and disabled models', async () => {
+    const app = await setup();
+    const unknown = await api(app, {
+      method: 'POST',
+      url: '/api/agents',
+      payload: { name: '架构师', role: '架构', modelId: 'mdl_missing' },
+    });
+    expect(unknown.status).toBe(400);
+    if (!unknown.body.ok) expect(unknown.body.error.code).toBe('MODEL_NOT_FOUND');
+
+    const disabled = await api(app, {
+      method: 'PUT',
+      url: '/api/models/mdl_claude_sonnet',
+      payload: {
+        name: 'Claude Sonnet 5',
+        provider: 'anthropic',
+        modelId: 'claude-sonnet-5',
+        status: 'DISABLED',
+      },
+    });
+    expect(disabled.status).toBe(200);
+
+    const result = await api(app, {
+      method: 'POST',
+      url: '/api/agents',
+      payload: { name: '架构师', role: '架构', modelId: 'mdl_claude_sonnet' },
+    });
+    expect(result.status).toBe(400);
+    if (!result.body.ok) expect(result.body.error.code).toBe('MODEL_DISABLED');
+  });
+
+  test('refuses to delete the default model or a model referenced by an agent', async () => {
+    const app = await setup();
+    const defaultDelete = await api(app, {
+      method: 'DELETE',
+      url: `/api/models/${DEFAULT_MODEL_ID}`,
+    });
+    expect(defaultDelete.status).toBe(409);
+    if (!defaultDelete.body.ok) expect(defaultDelete.body.error.code).toBe('MODEL_IS_DEFAULT');
+
+    await api(app, {
+      method: 'POST',
+      url: '/api/agents',
+      payload: { name: '架构师', role: '架构', modelId: 'mdl_claude_sonnet' },
+    });
+    const inUse = await api(app, {
+      method: 'DELETE',
+      url: '/api/models/mdl_claude_sonnet',
+    });
+    expect(inUse.status).toBe(409);
+    if (!inUse.body.ok) expect(inUse.body.error.code).toBe('MODEL_IN_USE');
   });
 });

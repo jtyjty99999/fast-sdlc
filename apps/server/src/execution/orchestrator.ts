@@ -9,6 +9,7 @@ import {
 import type { AppConfig } from '../config';
 import type { AgentRepository } from '../domain/agents/repository';
 import { toAgentProfile } from '../domain/agents/profile';
+import type { ModelRepository, ModelRuntime } from '../domain/models/repository';
 import type { TaskRepository } from '../domain/tasks/repository';
 import type { RunRepository } from '../domain/tasks/run-repository';
 import type { WorkflowRepository } from '../domain/workflows/repository';
@@ -16,6 +17,7 @@ import { validateWorkflowSteps } from '../domain/workflows/validator';
 import { badRequest, conflict, notFound } from '../http/errors';
 import { nowIso } from '../db/clock';
 import { buildContext } from './context-builder';
+import { createExecutorForModel } from './executors/factory';
 import { RUN_EVENT_TYPES, type RunEventStore } from './run-events';
 import { buildSnapshot } from './snapshot';
 import type { AgentExecutor, ExecutorInput } from './types';
@@ -32,7 +34,7 @@ interface OrchestratorDeps {
   workflows: WorkflowRepository;
   agents: AgentRepository;
   events: RunEventStore;
-  executor: AgentExecutor;
+  models: ModelRepository;
   config: AppConfig;
   logger: OrchestratorLogger;
 }
@@ -322,7 +324,7 @@ export class Orchestrator {
     step: StepRun,
     allSteps: readonly StepRun[],
   ): Promise<StepOutcome> {
-    const { runs, events, executor } = this.deps;
+    const { runs, events } = this.deps;
     const snapshot = runs.findRunSnapshot(runId);
     const task = this.deps.tasks.findById(taskId);
     if (!snapshot || !task) {
@@ -343,6 +345,14 @@ export class Orchestrator {
       this.finish(runId, 'FAILED', message);
       return 'stop';
     }
+
+    const model = this.resolveModel(agent);
+    if ('error' in model) {
+      this.failStep(runId, step, model.error);
+      return 'stop';
+    }
+    const executor = this.createStepExecutor(runId, step, model);
+    if (!executor) return 'stop';
 
     const dependencyOutputs = step.dependsOn
       .map((key) => allSteps.find((candidate) => candidate.stepKey === key))
@@ -373,14 +383,18 @@ export class Orchestrator {
       message: `步骤「${step.stepName}」就绪`,
     });
 
-    const model = executor.kind === 'anthropic' ? agent.model : executor.model;
-    if (!runs.markStepRunning(step.id, context, model)) return 'stop';
+    if (!runs.markStepRunning(step.id, context, model.modelId)) return 'stop';
     events.append({
       runId,
       stepRunId: step.id,
       type: RUN_EVENT_TYPES.STEP_STARTED,
       message: `步骤「${step.stepName}」开始，执行者：${agent.name}`,
-      payload: { agentName: agent.name, model },
+      payload: {
+        agentName: agent.name,
+        model: model.modelId,
+        modelName: model.name,
+        provider: model.provider,
+      },
     });
 
     const controller = new AbortController();
@@ -399,7 +413,7 @@ export class Orchestrator {
       agentId: agent.id,
       agentName: agent.name,
       role: agent.role,
-      model: agent.model,
+      model: model.modelId,
       stepName: step.stepName,
       taskTitle: task.title,
       systemPrompt: context.systemPrompt,
@@ -510,6 +524,50 @@ export class Orchestrator {
       this.finish(runId, 'FAILED', message);
       return 'stop';
     }
+  }
+
+  private resolveModel(agent: SnapshotAgent): ModelRuntime | { error: string } {
+    const model = agent.modelId
+      ? this.deps.models.findById(agent.modelId)
+      : this.deps.models.findDefault();
+    if (!model) {
+      return {
+        error: agent.modelId
+          ? `模型「${agent.modelName || agent.modelId}」不存在或已被删除，请在模型管理中检查`
+          : '未配置默认模型，请在模型管理中设置',
+      };
+    }
+    if (model.status !== 'ACTIVE') {
+      return { error: `模型「${model.name}」已停用，请在模型管理中启用或切换` };
+    }
+    return model;
+  }
+
+  private createStepExecutor(
+    runId: string,
+    step: StepRun,
+    model: ModelRuntime,
+  ): AgentExecutor | undefined {
+    try {
+      return createExecutorForModel(model, this.deps.config);
+    } catch (error) {
+      this.failStep(runId, step, errorMessage(error));
+      return undefined;
+    }
+  }
+
+  private failStep(runId: string, step: StepRun, message: string): void {
+    const { runs, events } = this.deps;
+    if (runs.markStepFailed(step.id, message)) {
+      events.append({
+        runId,
+        stepRunId: step.id,
+        type: RUN_EVENT_TYPES.STEP_FAILED,
+        message: `步骤「${step.stepName}」失败：${message}`,
+        payload: { error: message },
+      });
+    }
+    this.finish(runId, 'FAILED', message);
   }
 
   private finish(

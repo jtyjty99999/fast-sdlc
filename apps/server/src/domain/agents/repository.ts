@@ -1,11 +1,11 @@
 import type {
   Agent,
   AgentDetail,
-  AgentInput,
   AgentMountInput,
   AgentStatus,
   KnowledgeItem,
   KnowledgeType,
+  ModelProvider,
   Skill,
 } from '@autosdd/shared';
 import type { Db } from '../../db/database';
@@ -18,12 +18,24 @@ interface AgentRow {
   role: string;
   description: string;
   system_prompt: string;
-  model: string;
+  model_id: string | null;
+  model_name: string | null;
+  model_provider: string | null;
   status: string;
   skill_count: number;
   knowledge_count: number;
   created_at: string;
   updated_at: string;
+}
+
+/** Write shape used after the service has resolved a concrete model. */
+export interface AgentWrite {
+  name: string;
+  role: string;
+  description: string;
+  systemPrompt: string;
+  modelId: string;
+  status: AgentStatus;
 }
 
 interface SkillRow {
@@ -47,10 +59,11 @@ interface KnowledgeRow {
 }
 
 const AGENT_SELECT = `
-  SELECT a.*,
+  SELECT a.*, m.name AS model_name, m.provider AS model_provider,
     (SELECT COUNT(*) FROM agent_skills x WHERE x.agent_id = a.id) AS skill_count,
     (SELECT COUNT(*) FROM agent_knowledge x WHERE x.agent_id = a.id) AS knowledge_count
   FROM agents a
+  LEFT JOIN models m ON m.id = a.model_id
 `;
 
 export function mapSkillRow(row: SkillRow): Skill {
@@ -84,7 +97,9 @@ export function mapAgentRow(row: AgentRow): Agent {
     role: row.role,
     description: row.description,
     systemPrompt: row.system_prompt,
-    model: row.model,
+    modelId: row.model_id ?? null,
+    modelName: row.model_name ?? null,
+    modelProvider: (row.model_provider as ModelProvider | null) ?? null,
     status: row.status as AgentStatus,
     skillCount: row.skill_count,
     knowledgeCount: row.knowledge_count,
@@ -140,41 +155,41 @@ export class AgentRepository {
     return rows.map(mapKnowledgeRow);
   }
 
-  create(input: AgentInput, id = newId()): Agent {
+  create(input: AgentWrite, id = newId()): Agent {
     const now = nowIso();
     this.db
       .prepare(
-        `INSERT INTO agents (id, name, role, description, system_prompt, model, status, created_at, updated_at)
+        `INSERT INTO agents (id, name, role, description, system_prompt, model_id, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         input.name,
         input.role,
-        input.description ?? '',
-        input.systemPrompt ?? '',
-        input.model ?? 'claude-sonnet-5',
-        input.status ?? 'ACTIVE',
+        input.description,
+        input.systemPrompt,
+        input.modelId,
+        input.status,
         now,
         now,
       );
     return this.findById(id)!;
   }
 
-  update(id: string, input: AgentInput): Agent | undefined {
+  update(id: string, input: AgentWrite): Agent | undefined {
     const result = this.db
       .prepare(
         `UPDATE agents
-         SET name = ?, role = ?, description = ?, system_prompt = ?, model = ?, status = ?, updated_at = ?
+         SET name = ?, role = ?, description = ?, system_prompt = ?, model_id = ?, status = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
         input.name,
         input.role,
-        input.description ?? '',
-        input.systemPrompt ?? '',
-        input.model ?? 'claude-sonnet-5',
-        input.status ?? 'ACTIVE',
+        input.description,
+        input.systemPrompt,
+        input.modelId,
+        input.status,
         nowIso(),
         id,
       );

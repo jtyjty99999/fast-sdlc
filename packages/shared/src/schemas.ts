@@ -2,10 +2,12 @@ import { z } from 'zod';
 import {
   AGENT_STATUSES,
   APPROVAL_STATUSES,
-  DEFAULT_MODEL,
+  DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_STEP_TIMEOUT_SECONDS,
   GATE_MODES,
   KNOWLEDGE_TYPES,
+  MODEL_PROVIDERS,
+  MODEL_STATUSES,
   WORKFLOW_STATUSES,
 } from './constants';
 
@@ -13,16 +15,51 @@ const text = (max: number) => z.string().trim().max(max);
 const requiredText = (max: number) => z.string().trim().min(1).max(max);
 const stringList = (maxItems = 50) =>
   z.array(z.string().trim().min(1).max(200)).max(maxItems);
+const httpUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((value) => /^https?:\/\/\S+$/i.test(value), 'Base URL 必须是 http(s) 地址')
+  .refine((value) => !/^https?:\/\/[^/?#\s]*@/i.test(value), 'Base URL 不能包含用户名或密码');
 
 export const agentInputSchema = z.object({
   name: requiredText(80),
   role: requiredText(80),
   description: text(1000).default(''),
   systemPrompt: text(30_000).default(''),
-  model: requiredText(120).default(DEFAULT_MODEL),
+  modelId: z.string().trim().min(1).max(120).optional(),
   status: z.enum(AGENT_STATUSES).default('ACTIVE'),
 });
 export type AgentInput = z.infer<typeof agentInputSchema>;
+
+export const modelInputSchema = z
+  .object({
+    name: requiredText(80),
+    provider: z.enum(MODEL_PROVIDERS),
+    modelId: requiredText(120),
+    baseUrl: text(500).default(''),
+    apiKey: z.string().trim().max(500).optional(),
+    maxTokens: z
+      .number()
+      .int()
+      .min(1)
+      .max(65_536)
+      .default(DEFAULT_MODEL_MAX_TOKENS),
+    status: z.enum(MODEL_STATUSES).default('ACTIVE'),
+  })
+  .superRefine((input, ctx) => {
+    if (input.provider === 'openai' && !httpUrl.safeParse(input.baseUrl).success) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['baseUrl'],
+        message: 'OpenAI 兼容模型必须填写 http(s) Base URL',
+      });
+    }
+    if (input.provider === 'anthropic' && input.baseUrl !== '' && !httpUrl.safeParse(input.baseUrl).success) {
+      ctx.addIssue({ code: 'custom', path: ['baseUrl'], message: 'Base URL 必须是 http(s) 地址' });
+    }
+  });
+export type ModelInputSchema = z.infer<typeof modelInputSchema>;
 
 export const agentMountInputSchema = z.object({
   skillIds: z.array(z.string().min(1)).max(50).default([]),

@@ -114,7 +114,7 @@ export function AgentsPage() {
               <div className="ac-desc">{agent.description || '未填写简介。'}</div>
               <div className="ac-foot">
                 <span className="ac-stat">
-                  ✦ {agent.skillCount} · ◇ {agent.knowledgeCount} · {agent.model}
+                  ✦ {agent.skillCount} · ◇ {agent.knowledgeCount} · {agent.modelName ?? '未配置模型'}
                 </span>
                 <div className="row" style={{ gap: 4 }}>
                   <Button size="sm" variant="ghost" onClick={() => setEditing(agent)}>

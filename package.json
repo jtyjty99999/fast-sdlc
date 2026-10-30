@@ -1,0 +1,24 @@
+{
+  "name": "autosdd",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.3",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"pnpm --filter @autosdd/server dev\" \"pnpm --filter @autosdd/web dev\"",
+    "build": "pnpm --filter @autosdd/web build",
+    "start": "pnpm --filter @autosdd/server start",
+    "seed": "pnpm --filter @autosdd/server seed",
+    "test": "pnpm --filter @autosdd/server test && pnpm --filter @autosdd/web test",
+    "test:coverage": "pnpm --filter @autosdd/server test:coverage",
+    "e2e": "pnpm build && pnpm --filter @autosdd/e2e test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "typescript": "~5.9.3"
+  }
+}

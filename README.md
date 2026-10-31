@@ -1,6 +1,6 @@
 # AutoSDD
 
-一个 **AutoWonder 风格 SDLC 系统的最小可运行实现**：把「谁来干、按什么顺序干、干得怎么样」三件事收敛成三个可操作的对象——
+一个 **可本地运行的 SDLC 系统最小实现**：把「谁来干、按什么顺序干、干得怎么样」三件事收敛成三个可操作的对象——
 
 1. **Agent 管理**：角色化智能体，可挂载 **Skill**（可复用指令包）与 **Knowledge**（项目规则、业务术语、API 规范等）。
 2. **Workflow 管理**：编排一个任务由哪些 Agent 按什么顺序执行；步骤间用显式 `depends_on` 表达依赖，数据模型与引擎天然支持 DAG，当前 UI 只创建线性链。
@@ -9,7 +9,7 @@
 
 默认使用 **Mock 模型**，不需要任何 API Key 就能完整体验；在「模型管理」中注册 Anthropic 或 OpenAI 兼容模型并填入 Key 后，即可让 Agent 调用真实模型。
 
-> 参考：阿里云 [alibabacloud-landing-zone / ai-sdlc / auto-wonder](https://github.com/aliyun/alibabacloud-landing-zone/tree/master/ai-sdlc)。详细设计见 [`docs/DESIGN.md`](docs/DESIGN.md)。
+> 文档：[使用指南](docs/guide/README.md) · [设计文档](docs/design/README.md) · [功能清单](docs/FEATURES.md)。
 
 ---
 
@@ -88,8 +88,11 @@ autosdd/
 ├── apps/server/        # Fastify + 编排器 + SQLite 仓储
 ├── apps/web/           # React 控制台
 ├── packages/shared/    # 领域类型、zod schema、状态常量（前后端共享）
-├── e2e/                # Playwright 冒烟测试
-└── docs/DESIGN.md      # 详细设计文档
+├── e2e/                # Playwright 冒烟测试与截图脚本
+└── docs/               # 使用指南、设计文档、功能清单
+    ├── guide/          # 使用指南与截图
+    ├── design/         # 分主题设计文档
+    └── FEATURES.md     # 已实现 / 待实现功能清单
 ```
 
 ### 关键设计
@@ -98,7 +101,7 @@ autosdd/
 - **人工卡点**：`gate_mode=HUMAN_APPROVAL` 的步骤执行完进入 `WAITING_APPROVAL`，产物可审阅；通过后继续，驳回则 run 失败。
 - **实时观察**：所有状态变化写入 `run_events` 并广播；SSE 支持 `Last-Event-ID` / `?after=` 回放与 15s 心跳，断线重连带游标。
 - **确定性场景匹配**：场景精确 +10，关键词命中每个 +3，标签命中每个 +1；仅启用的工作流参与，返回 top 3 与命中原因，不依赖 LLM。
-- **上下文预算**：skills ≤ 8k、knowledge ≤ 12k、依赖产物 ≤ 12k 字符；超限按条目截断并提示（system 总预算常量预留，详见 `docs/CONTEXT_DESIGN.md`）。
+- **上下文预算**：skills ≤ 8k、knowledge ≤ 12k、依赖产物 ≤ 12k 字符；超限按条目截断并提示（system 总预算常量预留，详见 `docs/design/10-context.md`）。
 - **模型注册表**：模型是一等资产（provider / baseUrl / maxTokens / Key 来源），执行时按 Agent 绑定的模型逐步解析执行器；未绑定则跟随默认模型，模型缺失或停用会让步骤以明确错误失败。
 - **可插拔执行器**：`AgentExecutor` 统一流式事件、取消与超时语义；Mock、Anthropic 与 OpenAI 兼容实现可互换。
 
@@ -134,7 +137,7 @@ E2E 使用独立库 `apps/server/data/e2e.db`（启动前清理），覆盖「�
 - **无鉴权、单工作空间**；默认只绑定 `127.0.0.1`，不要改为公网地址暴露。
 - Markdown 渲染不启用原始 HTML。模型 API Key 可存于本地 SQLite（明文，仅本机演示），接口只返回来源（`stored` / `env` / `none`），永不回传明文；未保存时回退 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`。生产环境应接入密钥管理。
 - 进程内编排、单并发；服务重启时进行中的 run 会被标记失败（`SERVER_RESTARTED`），等待审批的 run 保留。
-- 与参考实现相比的取舍：Agent 版本评审/回滚、记忆审核、向量检索、多租户、IM、对象存储均未实现；详见设计文档「已知限制与后续路线」。
+- 当前取舍：Agent 版本评审/回滚、记忆审核、向量检索、多租户、IM、对象存储均未实现；详见设计文档「已知限制与后续路线」。
 
 ## 技术偏差说明
 

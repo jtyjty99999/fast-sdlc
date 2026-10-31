@@ -1,5 +1,7 @@
 # 工作流上下文管理设计
 
+> 所属：[AutoSDD 设计文档](README.md)
+> 相关：[执行引擎](04-execution.md) · [领域模型](03-domain-model.md)
 > 范围：AutoSDD 每次执行任务时，**每个工作流步骤看到什么上下文、这些上下文从哪里来、如何在步骤之间共享**。
 > 实现入口：`apps/server/src/execution/context-builder.ts`、`apps/server/src/execution/orchestrator.ts`、`apps/server/src/execution/snapshot.ts`。
 
